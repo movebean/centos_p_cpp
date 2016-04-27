@@ -9,6 +9,8 @@
 #include <list>
 #include <deque>
 #include <iterator>
+#include <unordered_set>
+#include <iomanip>
 
 void test() {
   std::set<std::string> projects = {"wechat", "beetalk",
@@ -172,6 +174,104 @@ void test6() {
 
 }
 
+std::ostream &operator<< (std::ostream &os, std::pair<const std::string, std::string> p) {
+  os << '(' << p.first << ' ' << p.second << ')';
+  return os;
+}
+
+template <typename Cont>
+void print_hash_state(const Cont &cont) {
+  std::cout << "size: " << cont.size() << std::endl;
+  std::cout << "bucket: " << cont.bucket_count() << std::endl;
+  std::cout << "load factor: " << cont.load_factor() << std::endl;
+  std::cout << "max load factor: " << cont.max_load_factor() << std::endl;
+
+  if (typeid(typename std::iterator_traits
+        <typename Cont::iterator>::iterator_category) ==
+      typeid(std::bidirectional_iterator_tag)) {
+    std::cout << "chaining style: doubly-linked" << std::endl;
+  }
+  else {
+    std::cout << "chaining style: singly-linked" << std::endl;
+  }
+
+  std::cout << "data: " << std::endl;
+  for (std::size_t idx = 0; idx != cont.bucket_count(); ++idx) {
+    std::cout << " b[" << std::setw(2) << idx << "]: ";
+    for (auto pos = cont.begin(idx); pos != cont.end(idx); ++pos) {
+      std::cout << *pos << " ";
+    }
+    std::cout << std::endl;
+  }
+}
+
+void test7() {
+  struct Customer {
+    public:
+      uint32_t _id;
+      std::string _name;
+    public:
+      Customer(uint32_t id, const std::string &name):
+        _id(id), _name(name) {}
+      bool operator< (const Customer &o) const {
+        return _id < o._id;
+      }
+      bool operator== (const Customer &o) const {
+        return _id == o._id;
+      }
+  };
+
+  std::function<std::size_t (const Customer &)> hash =
+    [] (const Customer &c) -> std::size_t {
+      return c._id;
+    };
+
+  std::unordered_set<Customer, decltype(hash)> cus(20, hash);
+  cus.insert(Customer(1, "yoyo"));
+  cus.insert(Customer(2, "gogo"));
+  cus.insert(Customer(3, "haha"));
+  std::for_each(cus.begin(), cus.end(), [](const Customer &c) {
+      std::cout << c._id << ' ' << c._name << std::endl;
+      });
+
+  std::function<std::size_t (const Customer &)> hash2 =
+    [] (const Customer &c) -> std::size_t {
+      return std::hash<uint32_t>()(c._id) +
+        std::hash<std::string>()(c._name);
+    };
+  std::unordered_set<Customer, decltype(hash2)> cus2(1, hash2);
+  cus2.insert(Customer(1, "yoyo"));
+  cus2.insert(Customer(2, "gogo"));
+  cus2.insert(Customer(3, "haha"));
+  std::for_each(cus2.begin(), cus2.end(), [](const Customer &c) {
+      std::cout << c._id << ' ' << c._name << std::endl;
+      });
+
+  std::unordered_set<int> seti(10);
+  seti.insert({11, 22, 33, 14, 25, 16, 23, 18, 19, 21});
+  print_hash_state(seti);
+  seti.insert({1, 2, 3});
+  print_hash_state(seti);
+
+  std::unordered_map<std::string, std::string> maps = {
+    {"day", "Tag"},
+    {"strange", "fremd"},
+    {"car", "Auto"},
+    {"smart", "elegant"},
+    {"trait", "Merkmal"},
+    {"strange", "seltsam"}
+  };
+  print_hash_state(maps);
+  maps.insert({
+      {"smart", "raffiniert"},
+      {"smart", "klug"},
+      {"clever", "faffiniert"}
+      });
+  print_hash_state(maps);
+  maps.max_load_factor(0.7);
+  print_hash_state(maps);
+}
+
 int main() {
   test();
   test1();
@@ -180,5 +280,6 @@ int main() {
   //test4();
   test5();
   test6();
+  test7();
   return 0;
 }
