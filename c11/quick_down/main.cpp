@@ -1,6 +1,7 @@
 #include <iostream>
 #include <boost/shared_ptr.hpp>
 #include <string>
+#include <thread>
 
 void test1() {
   nullptr_t my_null;
@@ -20,8 +21,9 @@ class NoHeapAllocC98 {
 };
 
 void test2() {
-  NoHeapAllocC11 *nha1 = new NoHeapAllocC11();
-  NoHeapAllocC98 *nha2 = new NoHeapAllocC98();
+  //NoHeapAllocC11 *nha1 = new NoHeapAllocC11();
+  //NoHeapAllocC98 *nha2 = new NoHeapAllocC98();
+  std::cout << std::thread::hardware_concurrency() << std::endl;
 }
 
 int main() {

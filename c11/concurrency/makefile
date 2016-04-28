@@ -1,11 +1,11 @@
 DIR = ./
 CXX = g++
 AR = ar
-CXXFLAGS = -g -O2 -Wall -pipe -std=c++11
+CXXFLAGS = -g -O0 -Wall -pipe -std=c++11
 INC = -I.
 CPPS = $(shell find -L $(DIR) -name '*.cpp')
 OBJS = $(patsubst %.cpp, %.o, $(CPPS))
-LIB = -lrt -lpthread -lboost_coroutine
+LIB = -lrt -lpthread -lboost_coroutine -lboost_thread -lboost_system
 
 TARGET = main
 
