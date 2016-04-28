@@ -272,6 +272,48 @@ void test7() {
   print_hash_state(maps);
 }
 
+void test8() {
+  struct Item {
+    public:
+      std::string _name;
+      float _price;
+    public:
+      Item(const std::string name, float price):
+        _name(name), _price(price) {}
+  };
+
+  using ItemPtr = std::shared_ptr<Item>;
+  std::deque<ItemPtr> best_sellers;
+  best_sellers = {
+    ItemPtr(new Item("yoyo", 20.10)),
+    ItemPtr(new Item("gogo", 10.30)),
+    ItemPtr(new Item("haha", 70.00)),
+  };
+  for_each(best_sellers.begin(), best_sellers.end(),
+      [](ItemPtr item) {
+      std::cout << "name:" << item->_name <<
+      " price:" << item->_price << std::endl;
+      });
+
+  using ItemRef = std::reference_wrapper<Item>;
+  std::list<ItemRef> good_sellers;
+  Item a("should", 11.11);
+  Item b("be", 22.22);
+  Item c("OK", 33.33);
+  //this cannot work, because ref to const Item && deleted
+  //good_sellers = {
+  //  Item("should", 11.11),
+  //  Item("be", 22.22),
+  //  Item("bad", 33.33)
+  //};
+  good_sellers = {a, b, c};
+  for_each(good_sellers.begin(), good_sellers.end(),
+      [](const Item &item) {
+      std::cout << "name:" << item._name <<
+      " price:" << item._price << std::endl;
+      });
+}
+
 int main() {
   test();
   test1();
@@ -281,5 +323,6 @@ int main() {
   test5();
   test6();
   test7();
+  test8();
   return 0;
 }
