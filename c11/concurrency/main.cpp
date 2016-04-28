@@ -1,6 +1,9 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
+#include <algorithm>
+#include <mutex>
 
 void test() {
   std::thread t([] () {
@@ -94,11 +97,69 @@ void test4() {
   scoped_thread st(std::move(t));
 }
 
+void test5() {
+  auto work = [] (int i) {
+    std::cout << i << ' ';
+  };
+  std::vector<std::thread> threads;
+  for (size_t i = 0; i < 20; ++i) {
+    threads.push_back(std::thread(work, i));
+  }
+  std::for_each(threads.begin(), threads.end(), [] (std::thread &t) {
+      t.join();
+      });
+  std::cout << '\n' << std::thread::hardware_concurrency() << std::endl;
+}
+
+void test6() {
+  std::mutex m;
+  int result = 0;
+  auto work = [&] () {
+    std::lock_guard<std::mutex> lock(m);
+    for (size_t i = 0; i < 1000000; ++i, ++result);
+  };
+  std::vector<std::thread> threads;
+  for (size_t i = 0; i < 20; ++i) {
+    threads.push_back(std::thread(work));
+  }
+  std::for_each(threads.begin(), threads.end(), [] (std::thread &t) {
+      t.join();
+      });
+  std::cout << "result:" << result << std::endl;
+}
+
+void test7() {
+  auto work1 = [] (std::mutex &m1, std::mutex &m2) {
+    std::lock(m1, m2);
+    std::lock_guard<std::mutex> _lk1(m1, std::adopt_lock);
+    std::lock_guard<std::mutex> _lk2(m2, std::adopt_lock);
+    std::cout << "Try lock m1 m2" << std::endl;
+  };
+  auto work2 = [] (std::mutex &m1, std::mutex &m2) {
+    std::lock(m2, m1);
+    std::lock_guard<std::mutex> _lk2(m2, std::adopt_lock);
+    std::lock_guard<std::mutex> _lk1(m1, std::adopt_lock);
+    std::cout << "Try lock m2 m1" << std::endl;
+  };
+  std::mutex m1, m2;
+  std::vector<std::thread> threads;
+  for (size_t i = 0; i < 5; ++i) {
+    threads.push_back(std::thread(work1, std::ref(m1), std::ref(m2)));
+    threads.push_back(std::thread(work2, std::ref(m1), std::ref(m2)));
+  }
+  for_each (threads.begin(), threads.end(), [] (std::thread &t) {
+      t.join();
+      });
+}
+
 int main() {
   test();
   test1();
   test2();
   test3();
   test4();
+  test5();
+  test6();
+  test7();
   return 0;
 }
