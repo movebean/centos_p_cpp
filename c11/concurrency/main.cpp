@@ -425,7 +425,6 @@ void test13() {
 
 template <typename Iter, typename Func>
 void p_for_each(Iter first, Iter last, Func f, size_t depth = 0) {
-    static size_t idx = 0;
     depth++;
     unsigned long const length = std::distance(first, last);
     if (!length)
