@@ -403,6 +403,8 @@ class threads_guard {
     public:
         threads_guard(Cont &ts): _ts(ts) {}
         threads_guard(Cont &&t) = delete;
+        threads_guard(const threads_guard &) = delete;
+        threads_guard &operator= (const threads_guard &) = delete;
         ~threads_guard() {
             for_each (_ts.begin(), _ts.end(), [] (std::thread &t) {
                     if (t.joinable())
