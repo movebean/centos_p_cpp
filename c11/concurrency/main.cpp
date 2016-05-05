@@ -7,6 +7,7 @@
 #include <list>
 #include <condition_variable>
 #include <future>
+#include <set>
 #include <stack.hpp>
 #include <queue.hpp>
 #include <map.hpp>
@@ -455,6 +456,196 @@ void test14() {
     p_for_each(idx.begin(), idx.end(), work);
 }
 
+template <typename Iter, typename Match>
+Iter p_find_promise(Iter first, Iter last, Match match) {
+    auto impl = [] (Iter begin, Iter end, Match match,
+            std::promise<Iter> &result, std::atomic<bool> &done) -> void {
+        try {
+            for (;(begin != end) && !done.load(); ++begin) {
+                if (*begin == match) {
+                    result.set_value(begin);
+                    done.store(true);
+                    return;
+                }
+            }
+        }
+        catch (...) {
+            try {
+                result.set_exception(std::current_exception());
+                done.store(true);
+            }
+            catch (...) {}
+        }
+    };
+
+    const size_t length = std::distance(first, last);
+    if (!length)
+        return last;
+    const size_t min_per_thread = 25;
+    const size_t max_threads =
+        (length + min_per_thread - 1) / min_per_thread;
+
+    const size_t hardware_concurrency =
+        std::thread::hardware_concurrency();
+    const size_t num_threads =
+        std::min(hardware_concurrency!=0?hardware_concurrency:2, max_threads);
+    const size_t block_size = length / num_threads;
+
+    std::promise<Iter> result;
+    std::atomic<bool> done(false);
+    std::vector<std::thread> threads(num_threads - 1);
+    {
+        threads_guard<> _guard(threads);
+        Iter block_start = first;
+        for (size_t i = 0; i < (num_threads - 1); ++i) {
+            Iter block_end = block_start;
+            std::advance(block_end, block_size);
+            threads[i] = std::thread(impl, block_start, block_end,
+                    match, std::ref(result), std::ref(done));
+            block_start = block_end;
+        }
+        impl(block_start, last, match, result, done);
+    }
+    if (!done.load())
+        return last;
+    return result.get_future().get();
+}
+
+template <typename Iter, typename Match>
+Iter p_find_impl(Iter first, Iter last, Match match,
+        std::atomic<bool> &done, size_t depth = 0) {
+    depth++;
+    try {
+        const size_t length = std::distance(first, last);
+        const size_t min_per_thread = 25;
+        if (length <= (2*min_per_thread) || depth > 3) {
+            for (;(first != last) && !done.load(); ++first) {
+                if (*first == match) {
+                    done.store(true);
+                    return first;
+                }
+            }
+            return last;
+        }
+        else {
+            const Iter mid = first + length/2;
+            std::future<Iter> a_result = std::async(std::launch::async,
+                    p_find_impl<Iter, Match>,
+                    mid, last, match, std::ref(done), depth);
+            const Iter d_result =
+                p_find_impl(first, mid, match, done, depth);
+            return (d_result == mid)?a_result.get():d_result;
+        }
+    }
+    catch(...) {
+        done = true;
+        throw;
+    }
+}
+
+template <typename Iter, typename Match>
+Iter p_find(Iter first, Iter last, Match match) {
+    std::atomic<bool> done(false);
+    return p_find_impl(first, last, match, done);
+}
+
+template <typename Item, typename Iter>
+Item p_sum(Iter begin, Iter end, size_t depth=0) {
+    depth++;
+    const size_t min_per_thread = 25;
+    const size_t distance = std::distance(begin, end);
+    if (distance < (2 * min_per_thread) || depth > 3) {
+        return std::accumulate(begin, end, Item());
+    }
+    else {
+        Iter mid = begin + distance/2;
+        std::future<Item> result =
+            std::async(std::launch::async, p_sum<Item, Iter>, begin, mid, depth);
+        return p_sum<Item, Iter>(mid, end, depth) + result.get();
+    }
+}
+
+template <typename InputIter, typename OutputIter>
+OutputIter p_copy(InputIter first, InputIter last, OutputIter result,
+        size_t depth = 0) {
+    depth++;
+    const size_t min_per_thread = 25;
+    const size_t distance = std::distance(first, last);
+    if (distance < (2 * min_per_thread) || depth > 3) {
+        return std::copy(first, last, result);
+    }
+    else {
+        InputIter mid = first + distance/2;
+        OutputIter omid = result + distance/2;
+        std::future<OutputIter> async_result =
+            std::async(std::launch::async,
+                    p_copy<InputIter, OutputIter>, mid, last, omid, depth);
+        p_copy(first, mid, result, depth);
+        return async_result.get();
+    }
+}
+
+void test15() {
+    std::vector<int> vi;
+    for (size_t i = 0; i < 1000; ++i) {
+        vi.push_back(i);
+    }
+    auto it = p_find(vi.begin(), vi.end(), 25);
+    if (it == vi.end()) {
+        std::cout << "cann't find" << std::endl;
+    }
+    else {
+        std::cout << *it << std::endl;
+    }
+    auto it2 = p_find_promise(vi.begin(), vi.end(), 25);
+    std::cout << *it2 << std::endl;
+    std::cout << p_sum<int>(vi.begin(), vi.end()) << std::endl;
+    std::vector<int> output(vi.size());
+    p_copy(vi.begin(), vi.end(), output.begin());
+    std::set<int> output_set(vi.begin(), vi.end());
+    for (size_t i = 0; i < 1000; ++i) {
+        assert(output_set.count(i) > 0);
+    }
+    std::cout << "p_copy all right!" << std::endl;
+    return;
+}
+
+class barrier {
+    private:
+        std::atomic<uint64_t> _generation;
+        std::atomic<uint64_t> _count;
+        const uint64_t _init;
+    public:
+        barrier(uint64_t count):
+            _generation(0), _count(count), _init(count) {}
+        void wait() {
+            const uint64_t _local = _generation;
+            if (0 == --_count) {
+                _count = _init;
+                ++_generation;
+            }
+            else {
+                while (_local == _generation)
+                    std::this_thread::yield();
+            }
+        }
+};
+
+void test16() {
+    auto go_to_barrier = [] (int idx, barrier &b) {
+        std::cout << idx << " before barrier" << std::endl;
+        b.wait();
+        std::cout << idx << " after barrier" << std::endl;
+    };
+
+    std::vector<std::thread> threads;
+    threads_guard<> _guard(threads);
+    barrier b(7);
+    for (size_t i = 0; i < 7; ++i) {
+        threads.push_back(std::thread(go_to_barrier, i, std::ref(b)));
+    }
+}
+
 int main() {
   test();
   test1();
@@ -471,5 +662,7 @@ int main() {
   test12();
   test13();
   test14();
+  test15();
+  test16();
   return 0;
 }
