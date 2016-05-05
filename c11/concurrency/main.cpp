@@ -646,6 +646,168 @@ void test16() {
     }
 }
 
+class function_wrapper {
+    private:
+        struct impl_base {
+            virtual void call() = 0;
+            virtual ~impl_base() {}
+        };
+        std::unique_ptr<impl_base> _impl;
+        template <typename FuncType>
+        struct impl_grp: impl_base {
+            FuncType _f;
+            impl_grp(FuncType &&f): _f(std::move(f)) {}
+            impl_grp &operator=(impl_grp &&other) {
+                _f = std::move(other._f);
+                return *this;
+            }
+            void call() { _f(); }
+        };
+
+    public:
+        template <typename FuncType>
+        function_wrapper(FuncType &&f):
+            _impl(new impl_grp<FuncType>(std::move(f))) {}
+        function_wrapper() = default;
+        function_wrapper(function_wrapper &&other):
+            _impl(std::move(other._impl)) {}
+        function_wrapper &operator=(function_wrapper &&other) {
+            _impl = std::move(other._impl);
+            return *this;
+        }
+        void operator()() {
+            _impl->call();
+        }
+        function_wrapper(function_wrapper &other) = delete;
+        function_wrapper(const function_wrapper &other) = delete;
+        function_wrapper &operator=(function_wrapper &other) = delete;
+};
+
+class thread_pool {
+    private:
+        std::atomic<bool> _done;
+        typedef common::ts_queue<function_wrapper> queue_t;
+        typedef std::unique_ptr<queue_t> queue_ptr_t;
+        queue_t _global_queue;
+        std::vector<queue_ptr_t> _queues;
+        std::vector<std::thread> _threads;
+        threads_guard<> _guard;
+
+        static const size_t LOCAL_TASK_LIMIT = 8;
+
+        static thread_local queue_t *_local_queue;
+        static thread_local uint64_t _idx;
+        static uint64_t _current_idx;
+
+        bool __get_from_local(function_wrapper &task) {
+            if (_local_queue && _local_queue->try_pop(task)) {
+                std::cout << "I " << _idx << " get from local" << std::endl;
+                return true;
+            }
+            return false;
+        }
+
+        bool __get_from_global(function_wrapper &task) {
+            if (_global_queue.try_pop(task)) {
+                std::cout << "I " << _idx << " get from global" << std::endl;
+                return true;
+            }
+            return false;
+        }
+
+        bool __steal_task(function_wrapper &task) {
+            for (size_t i = 0; i < _queues.size(); ++i) {
+                uint64_t index = (_idx + 1) % _queues.size();
+                if (_queues[index]->try_pop_tail(task)) {
+                    std::cout << "I " << _idx << " get from " << index << std::endl;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void work(uint64_t idx) {
+            _idx = idx;
+            _local_queue = _queues[_idx].get();
+            while (!_done) {
+                function_wrapper task;
+                if (__get_from_local(task) ||
+                        __get_from_global(task) ||
+                        __steal_task(task)) {
+                    task();
+                    continue;
+                }
+                std::this_thread::yield();
+            }
+        }
+
+    public:
+        thread_pool(): _done(false), _guard(_threads) {
+             const size_t num_threads = std::thread::hardware_concurrency();
+             try {
+                 for (size_t i = 0; i < num_threads; ++i) {
+                     _queues.push_back(queue_ptr_t(new queue_t()));
+                     _threads.push_back(std::thread(&thread_pool::work, this, i));
+                 }
+             }
+             catch(...) {
+                 _done = true;
+                 throw;
+             }
+        }
+        void join() {
+            if (_threads.size() > 0) {
+                _threads[0].join();
+            }
+        }
+        ~thread_pool() { _done = true; }
+
+        template <typename FuncType>
+        std::future<typename std::result_of<FuncType()>::type>
+        submit(FuncType f) {
+            typedef typename std::result_of<FuncType()>::type result_type;
+            std::packaged_task<result_type()> task(std::move(f));
+            std::future<result_type> res(task.get_future());
+            uint64_t cidx = _current_idx++ % _queues.size();
+            if (_queues[cidx]->size() < LOCAL_TASK_LIMIT) {
+                std::cout << "I insert to local:" << cidx << std::endl;
+                _queues[cidx]->push(std::move(task));
+            }
+            else {
+                std::cout << "I insert to global" << std::endl;
+                _global_queue.push(std::move(task));
+            }
+            return res;
+        }
+};
+
+thread_local thread_pool::queue_t *thread_pool::_local_queue=nullptr;
+thread_local uint64_t thread_pool::_idx;
+uint64_t thread_pool::_current_idx = 0;
+
+void test17() {
+    thread_pool pool;
+    std::vector<int> acc_test;
+    for (size_t i = 0; i < 1000; ++i) {
+        acc_test.push_back(i);
+    }
+    auto res = pool.submit([&acc_test] () {
+            return std::accumulate(acc_test.begin(), acc_test.end(),
+                decltype(acc_test)::value_type());
+            });
+    std::cout << res.get() << std::endl;
+
+    for (size_t i = 1; i < 64; ++i) {
+        pool.submit([i] () {
+                std::cout << "sleep start:" << i << std::endl;
+                std::this_thread::sleep_for(std::chrono::seconds(i%5));
+                std::cout << "sleep done:" << i << std::endl;
+                });
+    }
+    pool.join();
+    //std::this_thread::sleep_for(std::chrono::seconds(18));
+}
+
 int main() {
   test();
   test1();
@@ -664,5 +826,6 @@ int main() {
   test14();
   test15();
   test16();
+  test17();
   return 0;
 }
