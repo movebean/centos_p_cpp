@@ -701,7 +701,6 @@ class thread_pool {
 
         bool __get_from_local(function_wrapper &task) {
             if (_local_queue && _local_queue->try_pop(task)) {
-                std::cout << "I " << _idx << " get from local" << std::endl;
                 return true;
             }
             return false;
@@ -709,7 +708,6 @@ class thread_pool {
 
         bool __get_from_global(function_wrapper &task) {
             if (_global_queue.try_pop(task)) {
-                std::cout << "I " << _idx << " get from global" << std::endl;
                 return true;
             }
             return false;
@@ -719,7 +717,6 @@ class thread_pool {
             for (size_t i = 0; i < _queues.size(); ++i) {
                 uint64_t index = (_idx + 1) % _queues.size();
                 if (_queues[index]->try_pop_tail(task)) {
-                    std::cout << "I " << _idx << " get from " << index << std::endl;
                     return true;
                 }
             }
@@ -770,11 +767,9 @@ class thread_pool {
             std::future<result_type> res(task.get_future());
             uint64_t cidx = _current_idx++ % _queues.size();
             if (_queues[cidx]->size() < LOCAL_TASK_LIMIT) {
-                std::cout << "I insert to local:" << cidx << std::endl;
                 _queues[cidx]->push(std::move(task));
             }
             else {
-                std::cout << "I insert to global" << std::endl;
                 _global_queue.push(std::move(task));
             }
             return res;

@@ -1,6 +1,8 @@
 #include <iostream>
 #include <atomic>
 #include <thread>
+#include <vector>
+#include <algorithm>
 
 std::atomic<long long> total {0};
 
@@ -39,8 +41,27 @@ void test2() {
   t2.join();
 }
 
+void test3() {
+    auto test_func = [] () {
+        thread_local uint32_t var = 1;
+        std::cout << var++ << std::endl;
+    };
+
+    std::vector<std::thread> threads;
+    for (size_t t = 0; t < 10; ++t) {
+        threads.push_back(std::thread([&test_func] () {
+                    for (size_t i = 0; i < 5; ++i)
+                        test_func();
+                    }));
+    }
+    for_each (threads.begin(), threads.end(), [] (std::thread &t) {
+        t.join();
+        });
+}
+
 int main() {
   test1();
   test2();
+  test3();
   return 0;
 }
