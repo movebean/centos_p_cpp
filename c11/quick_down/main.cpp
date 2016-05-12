@@ -26,8 +26,13 @@ void test2() {
   std::cout << std::thread::hardware_concurrency() << std::endl;
 }
 
+template <typename T>
+class TD;                   //Type Displayer
+
 int main() {
   test1();
   test2();
+  NoHeapAllocC98 c98;
+  TD<decltype(c98)> cType;
   return 0;
 }
